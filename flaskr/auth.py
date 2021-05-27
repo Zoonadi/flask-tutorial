@@ -9,8 +9,40 @@ from flaskr.db import get_db
 
 bp = Blueprint('auth',__name__, url_prefix='/auth')
 
-bp.route('/register', methods=('GET', 'POST'))
+def login_require(view):
+
+    """View decorater that redirects anonymous users to the login page."""
+    @functools.wraps(view)
+    def wrapped_view(**kwargs):
+        if g.user is None:
+            return redirect(url_for('auth.login'))
+
+        return view(**kwargs)
+
+    return wrapped_view
+
+@bp.before_app_request
+def load_logged_in_user():
+
+    """If the user id is stored in the session, load the user object from the database
+    into ''g.user''."""
+    user_id = session.get('user_id')
+
+    if user_id is None:
+        g.user = None
+    else:
+        g.user = get_db().execute(
+            'SELECT * FROM user WHERE id =?', (user_id,)
+        ).fetchone()
+
+
+@bp.route('/register', methods=('GET', 'POST'))
 def register():
+
+    """The code below registers a new user.
+    It then validates that the user name does not already exist.
+    It hashes the password for security"""
+
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -27,6 +59,7 @@ def register():
             error = f"User {username} is already registered."
 
         if error is None:
+            # If the name is available, store it in the database and go to the login page
             db.execute(
                 'INSERT INTO user (username, password) VALUES (?,?)',
                 (username, generate_password_hash(password))
@@ -35,10 +68,14 @@ def register():
             return redirect(url_for('auth.login'))
 
         flash(error)
+
     return render_template('auth/register.html')
 
 @bp.route('/login', methods=('GET','POST'))
 def login():
+
+    """This logins in a registered user by adding the
+     user id to the session"""
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -53,6 +90,7 @@ def login():
             error = 'Incorrect password.'
             
         if error is None:
+            # store the user id in a new session and return to the index page
             session.clear()
             session['user_id'] = user['id']
             return redirect(url_for('index'))
@@ -60,3 +98,8 @@ def login():
         flash(error)
         
         return render_template('auth/login.html')
+
+@bp.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('index'))
